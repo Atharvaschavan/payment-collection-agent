@@ -1,0 +1,213 @@
+{
+  "phase": 2,
+  "phase_name": "Look up the account via the provided API",
+  "description": "Tests that a valid, correctly-formatted account ID triggers a real call to POST /api/lookup-account, that the returned account data is stored correctly and never leaked into a user-facing message (balance/DOB/Aadhaar/pincode are not disclosed at this phase -- balance disclosure is Phase 4's concern), and that lookup failures (404, and locally-invalid formats) are handled with the correct retry accounting. Builds on the state Phase 1 leaves the agent in (stage: await_account_id, account_id: null).",
+  "test_cases": [
+    {
+      "id": "lookup_acc1001_succeeds",
+      "description": "A valid, existing account ID (ACC1001) is looked up successfully: account data is stored, the agent moves on to identity collection, and no sensitive account data is disclosed in the message.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {
+            "state": {"stage": "await_account_id", "account_id": null}
+          }
+        },
+        {
+          "user_input": "ACC1001",
+          "expect": {
+            "message_not_contains": ["1,250.75", "1990-05-14", "4321", "400001"],
+            "state": {
+              "stage": "await_identity",
+              "account_id": "ACC1001",
+              "account.full_name": "Nithin Jain",
+              "lookup_attempts": 0,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "lookup_acc1002_succeeds",
+      "description": "A second, different existing account ID (ACC1002) also looks up correctly -- confirms the API integration is general, not hardcoded to one account.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "ACC1002",
+          "expect": {
+            "message_not_contains": ["540.00", "1985-11-23", "9876", "400002"],
+            "state": {
+              "stage": "await_identity",
+              "account_id": "ACC1002",
+              "account.full_name": "Rajarajeswari Balasubramaniam",
+              "lookup_attempts": 0,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "lookup_acc1003_succeeds",
+      "description": "ACC1003 (the zero-balance account) looks up correctly at this phase -- the zero-balance closure logic is a later phase's concern (verification/amount), not lookup's.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "ACC1003",
+          "expect": {
+            "state": {
+              "stage": "await_identity",
+              "account_id": "ACC1003",
+              "account.full_name": "Priya Agarwal",
+              "lookup_attempts": 0,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "lookup_acc1004_succeeds",
+      "description": "ACC1004 (the leap-year-DOB account) looks up correctly.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "ACC1004",
+          "expect": {
+            "state": {
+              "stage": "await_identity",
+              "account_id": "ACC1004",
+              "account.full_name": "Rahul Mehta",
+              "lookup_attempts": 0,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "messy_phrasing_still_looks_up_correctly",
+      "description": "Assignment example phrasing 'it's ACC 1001' (spaced, hedged with an apostrophe-s contraction) must still normalize correctly and actually retrieve the right account via the real API -- not just superficially advance state.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "it's ACC 1001",
+          "expect": {
+            "state": {
+              "account_id": "ACC1001",
+              "account.full_name": "Nithin Jain",
+              "stage": "await_identity"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "nonexistent_account_asks_again_and_counts_as_one_attempt",
+      "description": "A well-formatted but nonexistent account ID (404 from the real API) must be handled gracefully: the agent asks the user to double-check, counts it as one lookup attempt, and does not close the conversation.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "ACC9999",
+          "expect": {
+            "message_contains_all": ["couldn't find", "2 of 3 attempts remaining"],
+            "state": {
+              "account_id": null,
+              "stage": "await_account_id",
+              "lookup_attempts": 1,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid_format_account_id_does_not_count_as_a_lookup_attempt",
+      "description": "An account ID that doesn't even match the ACCxxxx format (so the real lookup-account API is never called) must be rejected locally and must NOT count against the lookup-attempt limit -- only real 404s from the API should count. Validates 'Validate all inputs before calling any API'.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "my account is XYZ1001",
+          "expect": {
+            "message_contains_all": ["account id"],
+            "state": {
+              "account_id": null,
+              "stage": "await_account_id",
+              "lookup_attempts": 0,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "three_nonexistent_accounts_exhaust_the_retry_limit",
+      "description": "Three consecutive nonexistent account IDs must exhaust MAX_ACCOUNT_LOOKUP_ATTEMPTS (3) and close the conversation cleanly, per 'implement a sensible retry limit'.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "ACC8888",
+          "expect": {"state": {"lookup_attempts": 1, "closed": false}}
+        },
+        {
+          "user_input": "ACC7777",
+          "expect": {"state": {"lookup_attempts": 2, "closed": false}}
+        },
+        {
+          "user_input": "ACC6666",
+          "expect": {
+            "message_contains_any": ["unable to continue", "contact support"],
+            "state": {
+              "lookup_attempts": 3,
+              "closed": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "uncertain_about_own_account_id_is_not_misread_as_a_repeat_request",
+      "description": "Regression guard for a real issue found during Phase 1 hardening: a user expressing they don't know their account ID must NOT be misclassified as wants_info_repeated (there is nothing to repeat -- nothing has been given yet), and must not be misread as wants_to_stop either. The agent should just continue asking for the account ID normally.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {}
+        },
+        {
+          "user_input": "I'm not sure what my account id is, sorry",
+          "expect": {
+            "message_not_contains": ["security", "i've cancelled", "cancelled this session"],
+            "state": {
+              "account_id": null,
+              "stage": "await_account_id",
+              "closed": false,
+              "lookup_attempts": 0
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

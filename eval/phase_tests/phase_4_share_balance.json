@@ -1,0 +1,111 @@
+{
+  "phase": 4,
+  "phase_name": "Share the outstanding balance with the verified user",
+  "description": "Tests that the outstanding balance is disclosed accurately (exact Decimal from the lookup API, correctly formatted with the rupee sign and 2 decimal places) in the SAME turn verification succeeds -- no extra round-trip needed -- and that it is never disclosed before verification succeeds. Covers all 4 sandbox accounts (including ACC1003's zero-balance special case, where 'sharing the balance' means closing cleanly since there's nothing to collect) and a whole-number vs. comma-formatted vs. half-rupee balance to check formatting, not just presence.",
+  "test_cases": [
+    {
+      "id": "balance_disclosed_in_same_turn_as_verification_acc1001",
+      "description": "ACC1001's balance (₹1,250.75, a comma-formatted decimal amount) is disclosed in the exact same message that confirms verification -- no separate turn needed to ask for it.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, DOB 1990-05-14",
+          "expect": {
+            "message_contains_all": ["identity verified", "1,250.75"],
+            "state": {"verified": true, "stage": "await_amount"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "balance_formatted_correctly_as_whole_number_acc1002",
+      "description": "ACC1002's balance (₹540.00, a whole-rupee amount) must still render with 2 decimal places (₹540.00, not ₹540) -- checks formatting, not just presence.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {
+          "user_input": "Rajarajeswari Balasubramaniam, pincode 400002",
+          "expect": {
+            "message_contains_all": ["identity verified", "540.00"],
+            "message_not_contains": ["540.0 ", "540 "],
+            "state": {"verified": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "balance_formatted_correctly_half_rupee_acc1004",
+      "description": "ACC1004's balance (₹3,200.50, a half-rupee amount with a comma) must render exactly, not rounded or truncated.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {
+          "user_input": "Rahul Mehta, DOB 1988-02-29",
+          "expect": {
+            "message_contains_all": ["identity verified", "3,200.50"],
+            "state": {"verified": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "zero_balance_disclosed_and_closes_cleanly_acc1003",
+      "description": "ACC1003's zero balance (₹0.00) is disclosed and the conversation closes cleanly right there -- there is nothing to collect, so the agent must not go on to ask 'how much would you like to pay'.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1003", "expect": {}},
+        {
+          "user_input": "Priya Agarwal, Aadhaar last four 2468",
+          "expect": {
+            "message_contains_all": ["0.00"],
+            "message_not_contains": ["how much would you like to pay"],
+            "state": {"verified": true, "closed": true, "close_reason": "no_balance_due", "stage": "closed_success"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "balance_not_disclosed_before_verification_succeeds",
+      "description": "The balance figure must never appear in any message before verification actually succeeds -- checked across a wrong attempt and a partial-input prompt.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, DOB 2020-01-01",
+          "expect": {
+            "message_not_contains": ["1,250.75", "1250.75"],
+            "state": {"verified": false}
+          }
+        },
+        {
+          "user_input": "Nithin Jain",
+          "expect": {
+            "message_not_contains": ["1,250.75", "1250.75"],
+            "state": {"verified": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "balance_figure_stays_consistent_between_verification_and_amount_prompt",
+      "description": "If the user doesn't immediately state an amount, the follow-up prompt asking how much to pay must reference the exact same balance figure already disclosed -- not a different or re-derived number.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {
+          "user_input": "Rahul Mehta, DOB 1988-02-29",
+          "expect": {"message_contains_all": ["3,200.50"], "state": {"verified": true}}
+        },
+        {
+          "user_input": "how much do I owe again, remind me?",
+          "expect": {
+            "message_contains_all": ["3,200.50"],
+            "message_not_contains": ["security"],
+            "state": {"closed": false}
+          }
+        }
+      ]
+    }
+  ]
+}

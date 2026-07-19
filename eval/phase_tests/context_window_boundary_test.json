@@ -1,0 +1,73 @@
+{
+  "phase": "combined",
+  "phase_name": "Context retention across the LLM transcript window boundary (MAX_HISTORY_MESSAGES_FOR_EXTRACTION = 16)",
+  "description": "config.MAX_HISTORY_MESSAGES_FOR_EXTRACTION caps the raw transcript replayed to the LLM extractor at 16 messages (8 turns), trimmed from the front in orchestrator.py::_record_turn once exceeded -- a deliberate bound on cost/latency, documented in DESIGN.md. Every other test in this project (all 8 phase files, all 4 combined-journey cases) stays under 8 turns, so this boundary itself has never been exercised live. This file deliberately runs an 11-turn conversation so that a card number volunteered at turn 1 is still needed at turns 10-11, by which point turn 1's raw message has mathematically already been evicted from what's replayed to the LLM (turn 10 is the first extraction call whose transcript argument cannot contain turn 1's text -- see the arithmetic in the results doc). The card number must still be used correctly anyway, because ConversationState fields are permanent Python attributes, never re-derived from the transcript the LLM sees.",
+  "test_cases": [
+    {
+      "id": "card_volunteered_at_turn_1_still_used_correctly_at_turn_11_after_transcript_trim",
+      "description": "6 filler/off-topic turns are inserted between account lookup and identity verification purely to burn turns (none of them constitute a complete, wrong identity claim, so none count against the verification retry limit). By turn 10, turn 1's raw message is provably gone from the LLM's transcript window, yet the card number from turn 1 is still applied correctly with no re-ask.",
+      "turns": [
+        {
+          "user_input": "Hi, my account is ACC1001, and my card number is 4532015112830366 in case that helps speed things up",
+          "expect": {
+            "state": {"stage": "await_identity", "account.full_name": "Nithin Jain", "closed": false}
+          }
+        },
+        {
+          "user_input": "sorry, one moment, let me find my details",
+          "expect": {"state": {"stage": "await_identity", "closed": false, "identity_attempts": 0}}
+        },
+        {
+          "user_input": "actually, before that -- is my information kept safe with you?",
+          "expect": {"state": {"stage": "await_identity", "closed": false, "identity_attempts": 0}}
+        },
+        {
+          "user_input": "ok, how many attempts do I get if I get this wrong?",
+          "expect": {"state": {"stage": "await_identity", "closed": false, "identity_attempts": 0}}
+        },
+        {
+          "user_input": "alright, one sec",
+          "expect": {"state": {"stage": "await_identity", "closed": false, "identity_attempts": 0}}
+        },
+        {
+          "user_input": "ok here we go",
+          "expect": {"state": {"stage": "await_identity", "closed": false, "identity_attempts": 0}}
+        },
+        {
+          "user_input": "actually can you remind me what info you need from me?",
+          "expect": {"state": {"stage": "await_identity", "closed": false, "identity_attempts": 0}}
+        },
+        {
+          "user_input": "my name is Nithin Jain",
+          "expect": {
+            "message_contains_any": ["date of birth", "aadhaar", "pincode"],
+            "state": {"stage": "await_identity", "verified": false, "closed": false, "identity_attempts": 0}
+          }
+        },
+        {
+          "user_input": "DOB 1990-05-14",
+          "expect": {
+            "message_contains_all": ["identity verified", "1,250.75"],
+            "state": {"verified": true, "stage": "await_amount", "closed": false}
+          }
+        },
+        {
+          "user_input": "just clear the full amount",
+          "expect": {
+            "message_contains_all": ["cvv", "expiry"],
+            "message_not_contains": ["card number"],
+            "state": {"stage": "await_card_details", "closed": false}
+          }
+        },
+        {
+          "user_input": "cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["payment successful", "1,250.75", "transaction id", "recap: hi nithin jain"],
+            "message_not_contains": ["card number"],
+            "state": {"closed": true, "close_reason": "payment_success"}
+          }
+        }
+      ]
+    }
+  ]
+}

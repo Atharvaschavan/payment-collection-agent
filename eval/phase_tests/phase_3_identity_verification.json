@@ -1,0 +1,238 @@
+{
+  "phase": 3,
+  "phase_name": "Collect identity information and verify the user",
+  "description": "Tests the assignment's Verification Requirements directly: full name must match EXACTLY (no fuzzy/case-insensitive workaround) AND at least one secondary factor (DOB, Aadhaar last 4, or pincode) must also match; partial claims are handled gracefully without consuming a retry; a complete-but-wrong claim always consumes a retry, up to the 3-attempt limit; and account data (DOB/Aadhaar/pincode) is never exposed in any message, during or after verification. Builds on Phase 2's end state (stage: await_identity, account looked up).",
+  "test_cases": [
+    {
+      "id": "verify_with_dob_succeeds",
+      "description": "Correct name + correct DOB verifies successfully and moves the conversation to the amount stage.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, DOB 1990-05-14",
+          "expect": {
+            "message_contains_all": ["identity verified"],
+            "message_not_contains": ["1990-05-14", "4321", "400001"],
+            "state": {"verified": true, "stage": "await_amount", "identity_attempts": 0, "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_with_aadhaar_succeeds",
+      "description": "Correct name + correct Aadhaar last 4 (instead of DOB) also verifies successfully -- any ONE of the three secondary factors is sufficient.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, Aadhaar last four is 4321",
+          "expect": {
+            "message_contains_all": ["identity verified"],
+            "state": {"verified": true, "stage": "await_amount"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_with_pincode_succeeds",
+      "description": "Correct name + correct pincode (instead of DOB or Aadhaar) also verifies successfully.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, my pincode is 400001",
+          "expect": {
+            "message_contains_all": ["identity verified"],
+            "state": {"verified": true, "stage": "await_amount"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_lowercase_name_fails_no_case_insensitive_workaround",
+      "description": "Hard requirement: matching is strict, no case-insensitive workaround. The exact same secondary factor with a lowercased name must FAIL, not silently pass.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "nithin jain, DOB 1990-05-14",
+          "expect": {
+            "message_contains_all": ["doesn't match"],
+            "message_not_contains": ["identity verified"],
+            "state": {"verified": false, "identity_attempts": 1, "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_name_only_asks_for_secondary_without_consuming_a_retry",
+      "description": "Partial input (name only, no secondary factor) must be handled gracefully by asking for what's missing -- and must NOT consume a retry attempt.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain",
+          "expect": {
+            "message_contains_any": ["date of birth", "aadhaar", "pincode"],
+            "state": {"verified": false, "identity_attempts": 0, "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_secondary_only_asks_for_name_without_consuming_a_retry",
+      "description": "Partial input (secondary factor only, no name) must be handled gracefully by asking for the name -- and must NOT consume a retry attempt.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "my DOB is 1990-05-14",
+          "expect": {
+            "message_contains_all": ["full name"],
+            "state": {"verified": false, "identity_attempts": 0, "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_wrong_secondary_with_correct_name_fails_and_counts_as_one_attempt",
+      "description": "A complete claim (name + a secondary factor) that's wrong must fail AND consume exactly one retry attempt -- distinguishing this from the partial-input cases above.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, DOB 1999-09-09",
+          "expect": {
+            "message_contains_all": ["doesn't match", "2 of 3 attempts remaining"],
+            "state": {"verified": false, "identity_attempts": 1, "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_exhausts_all_three_attempts_and_closes",
+      "description": "Three consecutive wrong (but complete) claims exhaust the verification retry limit and close the conversation for security -- exactly at 3, not before or after.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {
+          "user_input": "Rajarajeswari Balasubramaniam, DOB 2000-01-01",
+          "expect": {"state": {"identity_attempts": 1, "closed": false}}
+        },
+        {
+          "user_input": "Rajarajeswari Balasubramaniam, pincode 000000",
+          "expect": {"state": {"identity_attempts": 2, "closed": false}}
+        },
+        {
+          "user_input": "Rajarajeswari Balasubramaniam, Aadhaar last four 1111",
+          "expect": {
+            "message_contains_all": ["security"],
+            "state": {"identity_attempts": 3, "closed": true, "verified": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_leap_year_dob_exact_match_succeeds",
+      "description": "ACC1004's DOB (1988-02-29) is a genuine leap-year date -- an exact match must verify successfully on the first attempt, with no special-casing needed by the user.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {
+          "user_input": "Rahul Mehta, DOB 1988-02-29",
+          "expect": {
+            "message_contains_all": ["identity verified"],
+            "state": {"verified": true, "identity_attempts": 0}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_leap_year_dob_nearby_wrong_date_is_an_ordinary_mismatch",
+      "description": "A valid-but-wrong date adjacent to the real leap-year DOB (1988-02-28, one day off) must be treated as an ordinary secondary-factor mismatch -- NOT flagged as an invalid-date format error, since it IS a real calendar date.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {
+          "user_input": "Rahul Mehta, DOB 1988-02-28",
+          "expect": {
+            "message_contains_all": ["doesn't match"],
+            "message_not_contains": ["real calendar date"],
+            "state": {"verified": false, "identity_attempts": 1}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_impossible_date_flagged_before_being_treated_as_a_mismatch",
+      "description": "A date that is NOT a real calendar date at all (1990-02-29 -- 1990 is not a leap year, unlike ACC1001's real 1990-05-14) must be flagged as an invalid date BEFORE verification runs, and must NOT consume a retry attempt -- distinct from an ordinary wrong-but-valid date.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, DOB 1990-02-29",
+          "expect": {
+            "message_contains_all": ["real calendar date"],
+            "state": {"verified": false, "identity_attempts": 0, "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "verify_all_info_given_at_once_out_of_order_succeeds_in_one_turn",
+      "description": "Name and secondary factor given together in the same message (right after the account ID, in a single combined turn) must verify immediately -- not force the user through separate name-then-secondary round-trips.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {
+          "user_input": "my account is ACC1001, I'm Nithin Jain, pincode 400001",
+          "expect": {
+            "message_contains_all": ["identity verified"],
+            "state": {"verified": true, "stage": "await_amount"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "security_never_exposes_dob_aadhaar_pincode_across_a_full_verification_attempt_cycle",
+      "description": "Hard rule: do not expose sensitive user data (DOB, Aadhaar, pincode) during or after verification. Checked across a failed attempt, a partial-input prompt, and a successful verification -- the account's real DOB/Aadhaar/pincode values must never appear in ANY agent message.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {
+          "user_input": "Nithin Jain, DOB 2020-01-01",
+          "expect": {"message_not_contains": ["1990-05-14", "4321", "400001"]}
+        },
+        {
+          "user_input": "Nithin Jain",
+          "expect": {"message_not_contains": ["1990-05-14", "4321", "400001"]}
+        },
+        {
+          "user_input": "DOB 1990-05-14",
+          "expect": {
+            "message_contains_all": ["identity verified"],
+            "message_not_contains": ["4321", "400001"],
+            "state": {"verified": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "security_declines_to_repeat_dob_back_after_giving_it",
+      "description": "Extends the Phase 1 security addition to identity fields: if the user asks the agent to repeat back a DOB/Aadhaar/pincode they just gave, the agent must decline citing security rather than echoing the value, regardless of whether verification has completed.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {"state": {"verified": true}}},
+        {
+          "user_input": "wait, what DOB did I just give you?",
+          "expect": {
+            "message_contains_all": ["security"],
+            "message_not_contains": ["1990-05-14"],
+            "state": {"closed": false}
+          }
+        }
+      ]
+    }
+  ]
+}

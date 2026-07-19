@@ -1,0 +1,170 @@
+{
+  "phase": 1,
+  "phase_name": "Greet the user and prompt for their account ID",
+  "description": "Tests the agent's very first response (turn 1 only). Per the assignment's flow, step 1 is just: greet the user and ask for their account ID. These tests check that this happens regardless of how the user opens the conversation -- a bare greeting, a casual opening, a question, or chit-chat -- and that the agent does not get derailed or skip the account-ID request. One boundary case (account ID volunteered in the very first message) is included to confirm the agent still greets but does not redundantly re-ask for what it already has. A security addition also confirms the agent never repeats the account ID back if asked, per the 'do not expose sensitive data' principle.",
+  "test_cases": [
+    {
+      "id": "bare_greeting",
+      "description": "A plain 'Hi' should greet and ask for the account ID.",
+      "turns": [
+        {
+          "user_input": "Hi",
+          "expect": {
+            "message_contains_all": ["hello", "account id"],
+            "state": {
+              "stage": "await_account_id",
+              "account_id": null,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "different_greeting_wording",
+      "description": "A different greeting phrasing should behave identically.",
+      "turns": [
+        {
+          "user_input": "Hello there!",
+          "expect": {
+            "message_contains_any": ["account id"],
+            "state": {
+              "stage": "await_account_id",
+              "account_id": null,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "casual_opening_not_a_greeting_word",
+      "description": "An opening message that isn't a greeting word at all should still just ask for the account ID, not get derailed.",
+      "turns": [
+        {
+          "user_input": "hey, I need to make a payment on my account",
+          "expect": {
+            "message_contains_any": ["account id"],
+            "state": {
+              "stage": "await_account_id",
+              "account_id": null,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "question_as_first_message",
+      "description": "If the user's first message is a question rather than a greeting, the agent should still greet and ask for the account ID rather than trying to answer an out-of-scope question.",
+      "turns": [
+        {
+          "user_input": "Hi, what information do you need from me?",
+          "expect": {
+            "message_contains_any": ["account id"],
+            "state": {
+              "stage": "await_account_id",
+              "account_id": null,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "chitchat_first_message",
+      "description": "Pure chit-chat as the opening message should not derail the agent from asking for the account ID.",
+      "turns": [
+        {
+          "user_input": "Hey, how's it going?",
+          "expect": {
+            "message_contains_any": ["account id"],
+            "state": {
+              "stage": "await_account_id",
+              "account_id": null,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "minimal_lowercase_input",
+      "description": "A minimal, lowercase, unpunctuated opening should be handled the same way.",
+      "turns": [
+        {
+          "user_input": "hi",
+          "expect": {
+            "message_contains_any": ["account id"],
+            "state": {
+              "stage": "await_account_id",
+              "account_id": null,
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "boundary_account_id_volunteered_in_first_message",
+      "description": "Boundary case, not core to phase 1: if the account ID is already volunteered in the very first message, the agent must still greet (per the hard rule 'do not skip steps'), but must NOT redundantly ask for the account ID again since it already has it -- it should proceed to account lookup instead. This confirms the greeting step doesn't force an ignorable extra round-trip when the user front-loads information.",
+      "turns": [
+        {
+          "user_input": "Hi, my account is ACC1001",
+          "expect": {
+            "message_contains_all": ["hello"],
+            "message_not_contains": ["please share your account id", "could you share your account id"],
+            "state": {
+              "account_id": "ACC1001",
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "messy_account_id_formatting_lowercase_with_space",
+      "description": "One of the assignment's own example phrasings: 'acc 1001' (lowercase, with a space) given as the very first message must be normalized to ACC1001, looked up successfully, and move the conversation forward -- not be rejected as an invalid format.",
+      "turns": [
+        {
+          "user_input": "acc 1001",
+          "expect": {
+            "message_contains_all": ["hello"],
+            "message_not_contains": ["please share your account id", "couldn't quite make out an account id"],
+            "state": {
+              "account_id": "ACC1001",
+              "stage": "await_identity",
+              "closed": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "security_declines_to_repeat_account_id",
+      "description": "Security addition: if the user asks the agent to repeat their account ID back, it must decline (citing security) rather than echoing the account ID string back -- do not expose identifying data on request, per the 'do not expose sensitive data' principle.",
+      "turns": [
+        {
+          "user_input": "Hi, my account is ACC1001",
+          "expect": {
+            "state": {
+              "account_id": "ACC1001",
+              "closed": false
+            }
+          }
+        },
+        {
+          "user_input": "wait, can you repeat my account ID back to me?",
+          "expect": {
+            "message_contains_all": ["security"],
+            "message_not_contains": ["acc1001"],
+            "state": {
+              "account_id": "ACC1001",
+              "closed": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

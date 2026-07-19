@@ -1,0 +1,196 @@
+{
+  "phase": 5,
+  "phase_name": "Collect payment amount and card payment details",
+  "description": "The assignment's step 5 is titled 'collect card payment details', but payment AMOUNT collection happens immediately before card details in the flow with no separate numbered step of its own -- and the assignment explicitly cares about messy amount phrasing (its own 'Payment Amount' example table). This phase's test file therefore covers both: amount collection (specific numbers, worded amounts, 'full amount' phrasing, partial payments, over-balance rejection) and card detail collection (messy formatting, out-of-order/multi-turn collection, partial-field prompting, cardholder-name default, and local format validation) -- everything gathered before Phase 6's actual process-payment call. Builds on Phase 4's end state (stage: await_amount, identity verified).",
+  "test_cases": [
+    {
+      "id": "amount_specific_number_accepted",
+      "description": "A plain specific number is accepted as the payment amount and moves the conversation to card collection.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {
+          "user_input": "500",
+          "expect": {
+            "message_contains_all": ["card number"],
+            "state": {"amount": "500.00", "stage": "await_card_details"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "amount_worded_phrase_accepted",
+      "description": "Assignment's own example phrasing: 'I want to pay a thousand rupees' must resolve to exactly 1000, not be misread as a different number or rejected.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {"user_input": "Rahul Mehta, DOB 1988-02-29", "expect": {}},
+        {
+          "user_input": "I want to pay a thousand rupees",
+          "expect": {
+            "state": {"amount": "1000.00", "stage": "await_card_details"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "amount_partial_payment_phrasing_accepted",
+      "description": "Assignment's own example phrasing: 'can I do 500 for now?' -- a partial payment (less than the full balance) must be accepted, confirming partial payments are genuinely allowed.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {
+          "user_input": "can I do 500 for now?",
+          "expect": {
+            "state": {"amount": "500.00", "stage": "await_card_details"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "amount_full_amount_phrase_resolves_to_exact_balance",
+      "description": "'just clear the full amount' must resolve to the exact Decimal balance from the lookup API, not a guessed or rounded number.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {
+          "user_input": "just clear the full amount",
+          "expect": {
+            "state": {"amount": "540.00", "stage": "await_card_details"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "amount_exceeding_balance_rejected_before_any_card_collection",
+      "description": "An amount greater than the balance must be rejected client-side, with the agent staying in the amount stage rather than proceeding to card collection.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {
+          "user_input": "I'd like to pay 1000",
+          "expect": {
+            "message_contains_all": ["540.00"],
+            "state": {"amount": null, "stage": "await_amount", "closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "card_details_all_at_once_with_messy_formatting",
+      "description": "Assignment's own example: spaced card number, worded expiry, and spoken-digit CVV, all in one message, must all be parsed correctly together.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "the card number is 4532 0151 1283 0366, expires December 2027, CVV is one two three",
+          "expect": {
+            "message_contains_all": ["payment successful", "0366"],
+            "state": {"closed": true, "stage": "closed_success"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "card_details_collected_across_multiple_turns_out_of_order",
+      "description": "Card fields given across separate turns (number first, then CVV+expiry together) must merge correctly rather than being forgotten or overwritten.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {"user_input": "Rahul Mehta, DOB 1988-02-29", "expect": {}},
+        {"user_input": "1000", "expect": {}},
+        {
+          "user_input": "the card number is 4111111111111111",
+          "expect": {
+            "message_contains_all": ["cvv"],
+            "message_not_contains": ["payment successful"],
+            "state": {"closed": false}
+          }
+        },
+        {
+          "user_input": "cvv 456, expiry 01/2030",
+          "expect": {
+            "message_contains_all": ["payment successful"],
+            "state": {"closed": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "card_details_partial_input_asks_only_for_missing_fields",
+      "description": "Giving only the card number must prompt for exactly what's missing (CVV, expiry) -- not re-ask for the card number too.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "4532015112830366",
+          "expect": {
+            "message_contains_all": ["cvv", "expiry"],
+            "message_not_contains": ["card number"],
+            "state": {"closed": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "card_number_with_dashes_normalized_correctly",
+      "description": "Dash-separated card number formatting (not just space-separated) must also normalize correctly.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "card 4532-0151-1283-0366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["payment successful"],
+            "state": {"closed": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "cardholder_name_defaults_to_verified_identity_when_not_specified",
+      "description": "When the user doesn't explicitly name a different cardholder, the card is submitted under the verified account holder's own name.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["payment successful"],
+            "state": {"closed": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "locally_invalid_card_number_rejected_with_retry_countdown_shown",
+      "description": "A card number that fails the Luhn check must be rejected before any API call, with the retry limit and countdown shown explicitly (per the earlier retry-limit wording change), not silently accepted.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {"user_input": "Rahul Mehta, DOB 1988-02-29", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "card 1234567890123456, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["2 of 3 attempts remaining"],
+            "message_not_contains": ["payment successful"],
+            "state": {"closed": false}
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "phase": 7,
+  "phase_name": "Communicate the outcome clearly (success with transaction ID, or failure with reason)",
+  "description": "Phase 6 already covers the SUCCESS half of this step (payment_success includes both the transaction ID and a recap in one message). This phase covers the FAILURE half within what a real conversation can actually reach: local card-field validation failures (invalid_card/invalid_cvv/invalid_expiry) with a specific, correct reason and an explicit retry count, exhausting the shared payment-attempt limit with a clear terminal message, and a user-initiated cancellation being communicated as a clean, unambiguous outcome rather than silently ending. The 5 documented API-level error codes remain unreachable live by design (client-side validation catches them first) -- see PHASE_6_RESULTS.md and tests/test_fsm_scripted.py / tests/test_api_client.py for their coverage.",
+  "test_cases": [
+    {
+      "id": "cancellation_mid_flow_communicates_clear_outcome_and_closes",
+      "description": "A user cancelling partway through (after identity is verified, while an amount is being requested) gets an unambiguous cancellation message, not a generic error or a silent stall -- and the session closes immediately.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {"state": {"verified": true, "stage": "await_amount"}}},
+        {
+          "user_input": "actually, forget it, please cancel this",
+          "expect": {
+            "message_contains_any": ["cancelled", "no problem"],
+            "state": {"closed": true, "close_reason": "user_cancelled", "stage": "closed_failure"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid_cvv_rejected_with_specific_reason_and_retry_count",
+      "description": "A wrong-length CVV (2 digits instead of 3) is rejected before any API call, with a message specifically about the CVV -- not a generic error -- and an explicit retry count.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 12, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["CVV", "2 of 3 attempts remaining"],
+            "state": {"closed": false, "payment_attempts": 1}
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid_expiry_rejected_with_specific_reason_and_retry_count",
+      "description": "An expiry date already in the past is rejected before any API call, with a message specifically about the expiry -- not a generic error -- and an explicit retry count.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 01/2020",
+          "expect": {
+            "message_contains_all": ["expiry", "2 of 3 attempts remaining"],
+            "state": {"closed": false, "payment_attempts": 1}
+          }
+        }
+      ]
+    },
+    {
+      "id": "three_invalid_card_entries_exhaust_payment_attempts_with_clear_terminal_message",
+      "description": "Three consecutive locally-invalid card numbers exhaust MAX_PAYMENT_ATTEMPTS (3) and close the conversation with a message that states the reason AND that the retry limit was reached -- not a silent stall or a generic error.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {"user_input": "just clear the full amount", "expect": {}},
+        {
+          "user_input": "card 1234, cvv 123, expiry 12/2027",
+          "expect": {"state": {"payment_attempts": 1, "closed": false}}
+        },
+        {
+          "user_input": "ok let me try again, card 1234, cvv 123, expiry 12/2027",
+          "expect": {"state": {"payment_attempts": 2, "closed": false}}
+        },
+        {
+          "user_input": "card 1234, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["card number appears to be invalid", "retry limit"],
+            "state": {"payment_attempts": 3, "closed": true, "close_reason": "payment_attempts_exhausted", "stage": "closed_failure"}
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "phase": 6,
+  "phase_name": "Process the payment via the provided API",
+  "description": "Tests the actual POST /api/process-payment call and its response handling. Scope note: the 4 API-level card/amount error codes (invalid_card, invalid_cvv, invalid_expiry, invalid_amount) and insufficient_balance are, BY DESIGN, unreachable through a normal conversation -- client-side validation (validators.py) rejects all of these before any API call is made, per 'validate all inputs before calling any API'. Handling for those codes is instead covered where it can actually be exercised: directly against the real API (see PHASE_6_RESULTS.md) and via FakeAPIClient in tests/test_fsm_scripted.py / tests/test_api_client.py. This file's live coverage therefore focuses on what a real conversation actually exercises: successful processing (full and partial amounts, multiple accounts), that transaction IDs are genuinely unique per real API call (not a stubbed constant), and that the conversation closes correctly afterward.",
+  "test_cases": [
+    {
+      "id": "payment_processes_successfully_full_amount",
+      "description": "A full-amount payment on ACC1002 processes successfully via the real API, returning a real transaction ID that appears in both the immediate confirmation and the recap.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {"user_input": "just clear the full amount", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["payment successful", "540.00", "transaction id", "recap"],
+            "state": {"closed": true, "stage": "closed_success", "close_reason": "payment_success"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "payment_processes_successfully_partial_amount",
+      "description": "A partial payment (less than the full balance) on ACC1001 processes successfully -- confirms partial payments genuinely reach and succeed against the real API, not just get accepted by client-side validation.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["payment successful", "500.00"],
+            "message_not_contains": ["1,250.75"],
+            "state": {"closed": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "payment_processes_successfully_acc1004_leap_year_account",
+      "description": "Payment on ACC1004 (the leap-year-DOB account) also processes successfully -- confirms the payment path isn't specific to one account.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {"user_input": "Rahul Mehta, DOB 1988-02-29", "expect": {}},
+        {"user_input": "1500", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["payment successful", "1,500.00"],
+            "state": {"closed": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "conversation_stops_processing_further_input_after_successful_payment",
+      "description": "Once payment succeeds and the conversation closes, further input must get a fixed closing reply and must not re-engage the LLM or re-attempt payment.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "Nithin Jain, DOB 1990-05-14", "expect": {}},
+        {"user_input": "500", "expect": {}},
+        {"user_input": "card 4532015112830366, cvv 123, expiry 12/2027", "expect": {"state": {"closed": true}}},
+        {
+          "user_input": "can I make another payment?",
+          "expect": {
+            "message_contains_all": ["ended"],
+            "state": {"closed": true}
+          }
+        }
+      ]
+    }
+  ]
+}

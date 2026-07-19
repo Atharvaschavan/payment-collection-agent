@@ -1,0 +1,95 @@
+{
+  "phase": 8,
+  "phase_name": "Recap and close the conversation",
+  "description": "Tests that every terminal path (success, cancellation, and each of the three retry-limit exhaustions) actually and permanently closes the conversation -- further input after any of them must get the same fixed closing reply, never re-engage the LLM or any API, and never let stale state be reused. Also checks that the success recap specifically ties the correct name, amount, and transaction ID together in one sentence, not just that those facts appear somewhere in the message (Phase 6 already checked presence; this checks correct binding).",
+  "test_cases": [
+    {
+      "id": "recap_sentence_correctly_binds_name_amount_and_transaction_id_together",
+      "description": "The 'Recap: hi <name>, ... payment of <amount> ... (transaction ID <id>)' sentence must reflect the actual verified user and actual amount paid, not a generic template with facts scattered elsewhere in the message.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1004", "expect": {}},
+        {"user_input": "Rahul Mehta, DOB 1988-02-29", "expect": {}},
+        {"user_input": "1500", "expect": {}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["Recap: hi Rahul Mehta", "1,500.00"],
+            "state": {"closed": true, "close_reason": "payment_success"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "post_close_input_after_cancellation_gets_fixed_closing_reply",
+      "description": "Once a user cancels, any further input must get the fixed closed-conversation message, not a fresh response, another cancellation acknowledgement, or an error.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1001", "expect": {}},
+        {"user_input": "never mind, cancel this please", "expect": {"state": {"closed": true, "close_reason": "user_cancelled"}}},
+        {
+          "user_input": "wait actually let's continue, ACC1001",
+          "expect": {
+            "message_contains_all": ["ended"],
+            "state": {"closed": true, "close_reason": "user_cancelled"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "post_close_input_after_account_lookup_exhaustion_gets_fixed_closing_reply",
+      "description": "Once account lookup exhausts its retry limit, further input -- even a valid account ID -- must get the fixed closing message, not a fresh lookup attempt.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC9991", "expect": {}},
+        {"user_input": "ACC9992", "expect": {}},
+        {"user_input": "ACC9993", "expect": {"state": {"closed": true, "close_reason": "account_lookup_exhausted"}}},
+        {
+          "user_input": "ACC1001",
+          "expect": {
+            "message_contains_all": ["ended"],
+            "state": {"closed": true, "close_reason": "account_lookup_exhausted"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "post_close_input_after_verification_exhaustion_gets_fixed_closing_reply",
+      "description": "Once identity verification exhausts its retry limit, further input -- even the correct identity -- must get the fixed closing message, not a fresh verification attempt.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, DOB 2000-01-01", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 000000", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, Aadhaar last four 1111", "expect": {"state": {"closed": true, "close_reason": "verification_exhausted"}}},
+        {
+          "user_input": "Rajarajeswari Balasubramaniam, pincode 400002",
+          "expect": {
+            "message_contains_all": ["ended"],
+            "state": {"closed": true, "close_reason": "verification_exhausted", "verified": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "post_close_input_after_payment_attempts_exhaustion_gets_fixed_closing_reply",
+      "description": "Once the payment-attempt retry limit is exhausted, further input -- even valid card details -- must get the fixed closing message, never process a payment.",
+      "turns": [
+        {"user_input": "Hi", "expect": {}},
+        {"user_input": "ACC1002", "expect": {}},
+        {"user_input": "Rajarajeswari Balasubramaniam, pincode 400002", "expect": {}},
+        {"user_input": "just clear the full amount", "expect": {}},
+        {"user_input": "card 1234, cvv 123, expiry 12/2027", "expect": {}},
+        {"user_input": "card 1234, cvv 123, expiry 12/2027", "expect": {}},
+        {"user_input": "card 1234, cvv 123, expiry 12/2027", "expect": {"state": {"closed": true, "close_reason": "payment_attempts_exhausted"}}},
+        {
+          "user_input": "card 4532015112830366, cvv 123, expiry 12/2027",
+          "expect": {
+            "message_contains_all": ["ended"],
+            "state": {"closed": true, "close_reason": "payment_attempts_exhausted", "transaction_id": null}
+          }
+        }
+      ]
+    }
+  ]
+}
